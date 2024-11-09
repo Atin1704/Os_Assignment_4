@@ -1,4 +1,4 @@
-//mp we only need to work on handle page fault vala function
+
 
 #include "loader.h"
 #include <signal.h>
@@ -116,42 +116,29 @@ int initialize_elf_headers() {
     return ERR_NO_ENTRY;  // No entry point found in any loadable segment
 }
 
-
+// Page fault handler for page-by-page loading of ELF segments
 void handle_page_fault(int sig, siginfo_t *info, void *context) {
     void *fault_addr = info->si_addr;
 
     for (int i = 0; i < ehdr->e_phnum; i++) {
-        if (phdr[i].p_type == PT_LOAD && 
-            (size_t)fault_addr >= phdr[i].p_vaddr && 
-            (size_t)fault_addr < phdr[i].p_vaddr + phdr[i].p_memsz) {
-            
-            // Calculate segment-relative offset of the fault
-            size_t offset_in_segment = (size_t)fault_addr - phdr[i].p_vaddr;
-            
-            // Find which page block within the segment we need
-            size_t page_index = offset_in_segment / PAGE_SIZE;
-            
-            // Calculate actual page start address aligned to segment
-            size_t page_start = phdr[i].p_vaddr + (page_index * PAGE_SIZE);
-            
-            // Calculate offset into the file for this page
-            size_t file_offset = phdr[i].p_offset + (page_index * PAGE_SIZE);
-            
-            // Calculate how much data remains in the segment from this page onwards
-            size_t remaining_in_segment = phdr[i].p_memsz - (page_index * PAGE_SIZE);
-            size_t copy_size = (remaining_in_segment < PAGE_SIZE) ? remaining_in_segment : PAGE_SIZE;
+        if (phdr[i].p_type == PT_LOAD &&(size_t)fault_addr >= phdr[i].p_vaddr &&
+            (size_t)fault_addr < phdr[i].p_vaddr + phdr[i].p_memsz){
+
+            size_t page_start = ((size_t)fault_addr / PAGE_SIZE) * PAGE_SIZE;
+            size_t segment_offset = page_start - phdr[i].p_vaddr;
+            size_t remaining_data = phdr[i].p_memsz - segment_offset;
+            size_t copy_size = (remaining_data < PAGE_SIZE) ? remaining_data : PAGE_SIZE;
 
             void *mapped_addr = mmap((void *)page_start, PAGE_SIZE,
-                                   PROT_READ | PROT_WRITE | PROT_EXEC,
-                                   MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
+                                     PROT_READ | PROT_WRITE | PROT_EXEC,
+                                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
             if (mapped_addr == MAP_FAILED) {
                 perror("Page mapping failed");
                 exit(EXIT_FAILURE);
             }
 
-            // Copy the appropriate chunk of the segment
-            memcpy(mapped_addr, (char *)file_content + file_offset, copy_size);
+            memcpy(mapped_addr, (char *)file_content + phdr[i].p_offset + segment_offset, copy_size);
 
             page_fault_count++;
             page_alloc_count++;
@@ -160,11 +147,9 @@ void handle_page_fault(int sig, siginfo_t *info, void *context) {
             return;
         }
     }
-    
     fprintf(stderr, "Segfault at address not within any segment\n");
     exit(EXIT_FAILURE);
 }
-
 
 void load_and_run_elf(char **exe) {
     int error_code;
