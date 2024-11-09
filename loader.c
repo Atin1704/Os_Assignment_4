@@ -1,5 +1,3 @@
-
-
 #include "loader.h"
 #include <signal.h>
 #include <sys/mman.h>
@@ -129,22 +127,24 @@ void handle_page_fault(int sig, siginfo_t *info, void *context) {
             size_t remaining_data = phdr[i].p_memsz - segment_offset;
             size_t copy_size = (remaining_data < PAGE_SIZE) ? remaining_data : PAGE_SIZE;
 
-            void *mapped_addr = mmap((void *)page_start, PAGE_SIZE,
-                                     PROT_READ | PROT_WRITE | PROT_EXEC,
-                                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (copy_size > 0) {
+                void *mapped_addr = mmap((void *)page_start, PAGE_SIZE,
+                                         PROT_READ | PROT_WRITE | PROT_EXEC,
+                                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
-            if (mapped_addr == MAP_FAILED) {
-                perror("Page mapping failed");
-                exit(EXIT_FAILURE);
+                if (mapped_addr == MAP_FAILED) {
+                    perror("Page mapping failed");
+                    exit(EXIT_FAILURE);
+                }
+
+                memcpy(mapped_addr, (char *)file_content + phdr[i].p_offset + segment_offset, copy_size);
+
+                page_fault_count++;
+                page_alloc_count++;
+                internal_fragmentation += PAGE_SIZE - copy_size;
+
+                return;
             }
-
-            memcpy(mapped_addr, (char *)file_content + phdr[i].p_offset + segment_offset, copy_size);
-
-            page_fault_count++;
-            page_alloc_count++;
-            internal_fragmentation += PAGE_SIZE - copy_size;
-
-            return;
         }
     }
     fprintf(stderr, "Segfault at address not within any segment\n");
